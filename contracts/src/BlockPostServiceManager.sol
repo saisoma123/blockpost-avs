@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.13^;
+pragma solidity ^0.8.13;
 
-import "@eigenlayer/contracts/libraries/BytesLib.sol";
-import "@eigenlayer/contracts/core/DelegationManager.sol";
-import "@eigenlayer-middleware/src/unaudited/ECDSAServiceManagerBase.sol";
-import "@eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
-import "@openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol";
-import "@eigenlayer/contracts/permissions/Pausable.sol";
-import {IRegistryCoordinator} from "@eigenlayer-middleware/src/interfaces/IRegistryCoordinator.sol";
-import "./IHelloWorldServiceManager.sol";
+import "eigenlayer/contracts/libraries/BytesLib.sol";
+import "eigenlayer/contracts/core/DelegationManager.sol";
+import "eigenlayer-middleware/src/ServiceManagerBase.sol";
+import "eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
+import "openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol";
+import "eigenlayer/contracts/permissions/Pausable.sol";
+import {IRegistryCoordinator} from "eigenlayer-middleware/src/interfaces/IRegistryCoordinator.sol";
+import "./IBlockPostServiceManager.sol";
 
 pragma solidity ^0.8.13;
 
-contract BlockPost is 
-    ECDSAServiceManagerBase,
+contract BlockPostServiceManager is 
+    ServiceManagerBase,
     IHelloWorldServiceManager,
     Pausable {
     uint256 private messageId;
@@ -38,7 +38,7 @@ contract BlockPost is
             _delegationManager
         )
     {
-        messageId = 1
+        messageId = 1;
 
     }
 
