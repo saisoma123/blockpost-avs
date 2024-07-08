@@ -29,7 +29,7 @@ contract BlockPostDeployer is Script, Utils {
     // BlockPost contracts
     ProxyAdmin public blockPostProxyAdmin;
     PauserRegistry public blockPostPauserReg;
-    
+
     ECDSAStakeRegistry public stakeRegistryProxy;
     ECDSAStakeRegistry public stakeRegistryImplementation;
 
@@ -38,17 +38,25 @@ contract BlockPostDeployer is Script, Utils {
 
     function run() external {
         // EigenLayer contracts
-        //address strategyManagerAddress = 0x...; // 
+        //address strategyManagerAddress = 0x...; //
         //address delegationManagerAddress = 0x...; //
-        //address avsDirectoryAddress = 0x...; // 
-        //address eigenLayerProxyAdminAddress = ; // 
-        //address eigenLayerPauserRegAddress = ; // 
+        //address avsDirectoryAddress = 0x...; //
+        //address eigenLayerProxyAdminAddress = ; //
+        //address eigenLayerPauserRegAddress = ; //
 
-        IStrategyManager strategyManager = IStrategyManager(strategyManagerAddress);
-        IDelegationManager delegationManager = IDelegationManager(delegationManagerAddress);
+        IStrategyManager strategyManager = IStrategyManager(
+            strategyManagerAddress
+        );
+        IDelegationManager delegationManager = IDelegationManager(
+            delegationManagerAddress
+        );
         IAVSDirectory avsDirectory = IAVSDirectory(avsDirectoryAddress);
-        ProxyAdmin eigenLayerProxyAdmin = ProxyAdmin(eigenLayerProxyAdminAddress);
-        PauserRegistry eigenLayerPauserReg = PauserRegistry(eigenLayerPauserRegAddress);
+        ProxyAdmin eigenLayerProxyAdmin = ProxyAdmin(
+            eigenLayerProxyAdminAddress
+        );
+        PauserRegistry eigenLayerPauserReg = PauserRegistry(
+            eigenLayerPauserRegAddress
+        );
 
         address blockPostCommunityMultisig = msg.sender;
         address blockPostPauser = msg.sender;
@@ -61,5 +69,43 @@ contract BlockPostDeployer is Script, Utils {
             blockPostPauser
         );
         vm.stopBroadcast();
+    }
+
+    function _deployBlockPostContracts(
+        IDelegationManager delegationManager,
+        IAVSDirectory avsDirectory,
+        address blockPostCommunityMultisig,
+        address blockPostPauser
+    ) internal {
+        blockPostProxyAdmin = new ProxyAdmin();
+
+        address[] memory pausers = new address[](2);
+        pausers[0] = blockPostPauser;
+        pausers[1] = blockPostCommunityMultisig;
+        blockPostPauserReg = new PauserRegistry(
+            pausers,
+            blockPostCommunityMultisig
+        );
+
+        EmptyContract emptyContract = new EmptyContract();
+
+        blockPostServiceManagerProxy = BlockPostServiceManager(
+            address(
+                new TransparentUpgradeableProxy(
+                    address(emptyContract),
+                    address(blockPostProxyAdmin),
+                    ""
+                )
+            )
+        );
+        stakeRegistryProxy = ECDSAStakeRegistry(
+            address(
+                new TransparentUpgradeableProxy(
+                    address(emptyContract),
+                    address(blockPostProxyAdmin),
+                    ""
+                )
+            )
+        );
     }
 }
