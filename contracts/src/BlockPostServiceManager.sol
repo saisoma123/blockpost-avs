@@ -12,12 +12,15 @@ import "./IHelloWorldServiceManager.sol";
 
 pragma solidity ^0.8.13;
 
-contract BlockPost is is 
+contract BlockPost is 
     ECDSAServiceManagerBase,
     IHelloWorldServiceManager,
     Pausable {
     uint256 private messageId;
+
     mapping(uint256 => string) public messages;
+    // mapping(uint256 => bool) public messageValidated;
+    mapping(uint256 => bytes) public messageSignatures;
 
     event MessageStored(uint256 indexed messageId, string message);
     event MessageSubmitted(uint256 indexed messageId, string message);
@@ -31,7 +34,7 @@ contract BlockPost is is
         ECDSAServiceManagerBase(
             _avsDirectory,
             _stakeRegistry,
-            address(0), // hello-world doesn't need to deal with payments
+            address(0), 
             _delegationManager
         )
     {
@@ -48,6 +51,37 @@ contract BlockPost is is
         _;
     }
 
+    function submitMessage(string memory _message) public whenNotPaused returns (uint256) {
+        //require(bytes(_message).length > 0, "Message cannot be empty");
+
+        uint256 messageId = latestMessageId;
+        latestMessageId++;
+
+        emit MessageSubmitted(messageId, _message);
+        return messageId;
+    }
+    
+
+    function storeValidatedMessage(uint256 _messageId, string memory _message, bytes memory _signature) public onlyOperator whenNotPaused {
+        //require(bytes(_message).length > 0, "Message cannot be empty");
+        require(!messageValidated[_messageId], "Message already validated");
+
+        // Verify the signature
+        bytes32 messageHash = keccak256(abi.encodePacked(_message));
+        bytes32 ethSignedMessageHash = messageHash.toEthSignedMessageHash();
+        address signer = ethSignedMessageHash.recover(_signature);
+
+        require(operators[signer], "Invalid signature");
+
+        messages[_messageId] = _message;
+        // messageValidated[_messageId] = true;
+        messageSignatures[_messageId] = _signature;
+
+        emit MessageValidated(_messageId, _message, _signature);
+    }
+
+
+    /** 
     function storeMessage(string memory _message) public returns (uint256) {
         uint256 id = messageId;
         messages[id] = _message;
@@ -55,6 +89,7 @@ contract BlockPost is is
         emit MessageStored(messageId, _message);
         return id;
     }
+    */
 
     function retrieveMessage(
         uint256 _messageId
@@ -63,6 +98,7 @@ contract BlockPost is is
             bytes(messages[_messageId]).length > 0,
             "Message ID does not exist"
         );
+        require(messageValidated[_messageId], "Message not validated");
         return messages[_messageId];
     }
 }
