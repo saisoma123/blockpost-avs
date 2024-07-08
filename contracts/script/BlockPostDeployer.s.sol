@@ -107,5 +107,50 @@ contract BlockPostDeployer is Script, Utils {
                 )
             )
         );
+
+        stakeRegistryImplementation = new ECDSAStakeRegistry(delegationManager);
+
+        blockPostProxyAdmin.upgrade(
+            TransparentUpgradeableProxy(payable(address(stakeRegistryProxy))),
+            address(stakeRegistryImplementation)
+        );
+
+        blockPostProxyAdmin.upgradeAndCall(
+            TransparentUpgradeableProxy(payable(address(stakeRegistryProxy))),
+            address(stakeRegistryImplementation),
+            abi.encodeWithSelector(
+                ECDSAStakeRegistry.initialize.selector,
+                address(blockPostServiceManagerProxy),
+                1,
+                Quorum(new StrategyParams) // Initialize with an empty quorum as no strategies are involved
+            )
+        );
+
+        blockPostServiceManagerImplementation = new BlockPostServiceManager(
+            address(avsDirectory),
+            address(stakeRegistryProxy),
+            address(delegationManager)
+        );
+
+        blockPostProxyAdmin.upgrade(
+            TransparentUpgradeableProxy(
+                payable(address(blockPostServiceManagerProxy))
+            ),
+            address(blockPostServiceManagerImplementation)
+        );
+
+        console.log(
+            "BlockPostServiceManager Proxy:",
+            address(blockPostServiceManagerProxy)
+        );
+        console.log(
+            "BlockPostServiceManager Implementation:",
+            address(blockPostServiceManagerImplementation)
+        );
+        console.log("StakeRegistry Proxy:", address(stakeRegistryProxy));
+        console.log(
+            "StakeRegistry Implementation:",
+            address(stakeRegistryImplementation)
+        );
     }
 }
