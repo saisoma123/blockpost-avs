@@ -12,10 +12,11 @@ import "./IBlockPostServiceManager.sol";
 
 pragma solidity ^0.8.13;
 
-contract BlockPostServiceManager is 
+contract BlockPostServiceManager is
     ServiceManagerBase,
     IHelloWorldServiceManager,
-    Pausable {
+    Pausable
+{
     uint256 private messageId;
 
     mapping(uint256 => string) public messages;
@@ -34,25 +35,26 @@ contract BlockPostServiceManager is
         ECDSAServiceManagerBase(
             _avsDirectory,
             _stakeRegistry,
-            address(0), 
+            address(0),
             _delegationManager
         )
     {
         messageId = 1;
-
     }
 
     modifier onlyOperator() {
         require(
-            registryCoordinator.getOperatorStatus(msg.sender) == 
-            IRegistryCoordinator.OperatorStatus.REGISTERED, 
+            registryCoordinator.getOperatorStatus(msg.sender) ==
+                IRegistryCoordinator.OperatorStatus.REGISTERED,
             "Caller is not a registered operator"
         );
         _;
     }
 
-    function submitMessage(string memory _message) public whenNotPaused returns (uint256) {
-        //require(bytes(_message).length > 0, "Message cannot be empty");
+    function submitMessage(
+        string memory _message
+    ) public whenNotPaused returns (uint256) {
+        require(bytes(_message).length > 0, "Message cannot be empty");
 
         uint256 messageId = latestMessageId;
         latestMessageId++;
@@ -60,9 +62,12 @@ contract BlockPostServiceManager is
         emit MessageSubmitted(messageId, _message);
         return messageId;
     }
-    
 
-    function storeValidatedMessage(uint256 _messageId, string memory _message, bytes memory _signature) public onlyOperator whenNotPaused {
+    function storeValidatedMessage(
+        uint256 _messageId,
+        string memory _message,
+        bytes memory _signature
+    ) public onlyOperator whenNotPaused {
         //require(bytes(_message).length > 0, "Message cannot be empty");
         require(!messageValidated[_messageId], "Message already validated");
 
@@ -79,7 +84,6 @@ contract BlockPostServiceManager is
 
         emit MessageValidated(_messageId, _message, _signature);
     }
-
 
     /** 
     function storeMessage(string memory _message) public returns (uint256) {
