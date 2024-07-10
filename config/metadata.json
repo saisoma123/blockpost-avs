@@ -1,7 +1,7 @@
 {
   "name": "BlockPost",
-  "website": "",
+  "website": "https://github.com/saisoma123/blockpost-avs/",
   "description": "AVS that allows for storing and retrieving messages with off-chain validation",
-  "logo": "",
+  "logo": "https://raw.githubusercontent.com/saisoma123/blockpost-avs/main/config/logo.png",
   "twitter": ""
 }
