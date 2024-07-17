@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 import "@eigenlayer/contracts/permissions/PauserRegistry.sol";
 import {IDelegationManager} from "@eigenlayer/contracts/interfaces/IDelegationManager.sol";
@@ -9,40 +10,42 @@ import {IAVSDirectory} from "@eigenlayer/contracts/interfaces/IAVSDirectory.sol"
 import {IStrategyManager, IStrategy} from "@eigenlayer/contracts/interfaces/IStrategyManager.sol";
 import {ISlasher} from "@eigenlayer/contracts/interfaces/ISlasher.sol";
 import {StrategyBaseTVLLimits} from "@eigenlayer/contracts/strategies/StrategyBaseTVLLimits.sol";
+import {StrategyBase} from "@eigenlayer/contracts/strategies/StrategyBase.sol";
 import "@eigenlayer/test/mocks/EmptyContract.sol";
 
-import {ECDSAStakeRegistry} from "@eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
-import {Quorum, StrategyParams} from "@eigenlayer-middleware/src/interfaces/IECDSAStakeRegistryEventsAndErrors.sol";
-import "@eigenlayer-middleware/src/OperatorStateRetriever.sol";
+import {ECDSAStakeRegistry} from "eigenlayer-middleware/src/unaudited/ECDSAStakeRegistry.sol";
+import {Quorum, StrategyParams} from "eigenlayer-middleware/src/interfaces/IECDSAStakeRegistryEventsAndErrors.sol";
+import "eigenlayer-middleware/src/OperatorStateRetriever.sol";
 
-import {HelloWorldServiceManager, IServiceManager} from "../src/HelloWorldServiceManager.sol";
-import "../src/ERC20Mock.sol";
-
-import {Utils} from "./utils/Utils.sol";
+import {BlockPostServiceManager} from "../src/BlockPostServiceManager.sol";
 
 import "forge-std/Test.sol";
 import "forge-std/Script.sol";
 import "forge-std/StdJson.sol";
 import "forge-std/console.sol";
+import "./SimpleProxy.sol";
 
-contract BlockPostDeployer is Script, Utils {
+contract BlockPostDeployer is Script {
     // BlockPost contracts
     ProxyAdmin public blockPostProxyAdmin;
     PauserRegistry public blockPostPauserReg;
 
-    ECDSAStakeRegistry public stakeRegistryProxy;
+    SimpleProxy public stakeRegistryProxy;
     ECDSAStakeRegistry public stakeRegistryImplementation;
 
-    BlockPost public blockPostServiceManagerProxy;
-    BlockPost public blockPostServiceManagerImplementation;
+    SimpleProxy public blockPostServiceManagerProxy;
+    BlockPostServiceManager public blockPostServiceManagerImplementation;
+
+    event Initialized(address value);
 
     function run() external {
         // EigenLayer contracts
-        //address strategyManagerAddress = 0x...; //
-        //address delegationManagerAddress = 0x...; //
-        //address avsDirectoryAddress = 0x...; //
-        //address eigenLayerProxyAdminAddress = ; //
-        //address eigenLayerPauserRegAddress = ; //
+        address strategyManagerAddress = 0xdfB5f6CE42aAA7830E94ECFCcAd411beF4d4D5b6;
+        address delegationManagerAddress = 0xA44151489861Fe9e3055d95adC98FbD462B948e7;
+        address avsDirectoryAddress = 0x055733000064333CaDDbC92763c58BF0192fFeBf;
+        address eigenLayerProxyAdminAddress = 0xDB023566064246399b4AE851197a97729C93A6cf;
+        address eigenLayerPauserRegAddress = 0x85Ef7299F8311B25642679edBF02B62FA2212F06;
+        address baseStrategyImplementationAddr = 0x80528D6e9A2BAbFc766965E0E26d5aB08D9CFaF9;
 
         IStrategyManager strategyManager = IStrategyManager(
             strategyManagerAddress
@@ -57,6 +60,9 @@ contract BlockPostDeployer is Script, Utils {
         PauserRegistry eigenLayerPauserReg = PauserRegistry(
             eigenLayerPauserRegAddress
         );
+        StrategyBase baseStrategyImplementation = StrategyBase(
+            baseStrategyImplementationAddr
+        );
 
         address blockPostCommunityMultisig = msg.sender;
         address blockPostPauser = msg.sender;
@@ -65,6 +71,7 @@ contract BlockPostDeployer is Script, Utils {
         _deployBlockPostContracts(
             delegationManager,
             avsDirectory,
+            baseStrategyImplementation,
             blockPostCommunityMultisig,
             blockPostPauser
         );
@@ -74,68 +81,66 @@ contract BlockPostDeployer is Script, Utils {
     function _deployBlockPostContracts(
         IDelegationManager delegationManager,
         IAVSDirectory avsDirectory,
+        IStrategy baseStrategyImplementation,
         address blockPostCommunityMultisig,
         address blockPostPauser
     ) internal {
-        blockPostProxyAdmin = new ProxyAdmin();
+        blockPostProxyAdmin = new ProxyAdmin(msg.sender);
 
-        address[] memory pausers = new address[](2);
-        pausers[0] = blockPostPauser;
-        pausers[1] = blockPostCommunityMultisig;
-        blockPostPauserReg = new PauserRegistry(
-            pausers,
-            blockPostCommunityMultisig
-        );
+        {
+            address[] memory pausers = new address[](2);
+            pausers[0] = blockPostPauser;
+            pausers[1] = blockPostCommunityMultisig;
+            blockPostPauserReg = new PauserRegistry(
+                pausers,
+                blockPostCommunityMultisig
+            );
+        }
 
         EmptyContract emptyContract = new EmptyContract();
 
-        blockPostServiceManagerProxy = BlockPostServiceManager(
-            address(
-                new TransparentUpgradeableProxy(
-                    address(emptyContract),
-                    address(blockPostProxyAdmin),
-                    ""
-                )
-            )
-        );
-        stakeRegistryProxy = ECDSAStakeRegistry(
-            address(
-                new TransparentUpgradeableProxy(
-                    address(emptyContract),
-                    address(blockPostProxyAdmin),
-                    ""
-                )
-            )
+        blockPostServiceManagerProxy = new SimpleProxy(address(emptyContract));
+
+        stakeRegistryProxy = stakeRegistryProxy = new SimpleProxy(
+            address(emptyContract)
         );
 
-        stakeRegistryImplementation = new ECDSAStakeRegistry(delegationManager);
+        {
+            stakeRegistryImplementation = new ECDSAStakeRegistry(
+                delegationManager
+            );
 
-        blockPostProxyAdmin.upgrade(
-            TransparentUpgradeableProxy(payable(address(stakeRegistryProxy))),
-            address(stakeRegistryImplementation)
-        );
+            SimpleProxy(payable(address(stakeRegistryProxy))).upgradeTo(
+                address(stakeRegistryImplementation)
+            );
+        }
 
-        blockPostProxyAdmin.upgradeAndCall(
-            TransparentUpgradeableProxy(payable(address(stakeRegistryProxy))),
-            address(stakeRegistryImplementation),
-            abi.encodeWithSelector(
-                ECDSAStakeRegistry.initialize.selector,
+        {
+            StrategyParams memory strategyParams = StrategyParams({
+                strategy: baseStrategyImplementation,
+                multiplier: 10_000
+            });
+
+            StrategyParams[]
+                memory quorumsStrategyParams = new StrategyParams[](1);
+            quorumsStrategyParams[0] = strategyParams;
+
+            Quorum memory quorum = Quorum(quorumsStrategyParams);
+
+            stakeRegistryImplementation.initialize(
                 address(blockPostServiceManagerProxy),
                 1,
-                Quorum(new StrategyParams) // Initialize with an empty quorum as no strategies are involved
-            )
-        );
+                quorum
+            );
+        }
 
         blockPostServiceManagerImplementation = new BlockPostServiceManager(
-            address(avsDirectory),
-            address(stakeRegistryProxy),
-            address(delegationManager)
+            avsDirectory,
+            IRegistryCoordinator(address(0)), // Adjust this if you have a registry coordinator
+            IStakeRegistry(address(stakeRegistryProxy))
         );
 
-        blockPostProxyAdmin.upgrade(
-            TransparentUpgradeableProxy(
-                payable(address(blockPostServiceManagerProxy))
-            ),
+        SimpleProxy(payable(address(blockPostServiceManagerProxy))).upgradeTo(
             address(blockPostServiceManagerImplementation)
         );
 
