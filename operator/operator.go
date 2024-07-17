@@ -74,14 +74,14 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 			// Sign the validated message
 			signedMessage, err := o.SignValidatedMessage(validatedMessage)
 			if err != nil {
-				o.logger.Error("Failed to sign validated message", "err", err)
+				o.logger.Fatal("Failed to sign validated message", "err", err)
 				continue
 			}
 
 			// Submit the signed message to the blockchain
 			err = o.SubmitSignedMessageToBlockchain(signedMessage)
 			if err != nil {
-				o.logger.Error("Failed to submit signed message to blockchain", "err", err)
+				o.logger.Fatal("Failed to submit signed message to blockchain", "err", err)
 				continue
 			}
 
