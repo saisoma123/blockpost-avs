@@ -3,14 +3,20 @@ package operator
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"os"
+
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+
+	blockPostServiceManager "operator/bindings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/prometheus/client_golang/prometheus"
 
-	cstaskmanager "github.com/Layr-Labs/incredible-squaring-avs/contracts/bindings/IncredibleSquaringTaskManager"
 	"github.com/Layr-Labs/incredible-squaring-avs/core/chainio"
 	"github.com/Layr-Labs/incredible-squaring-avs/metrics"
 	"github.com/Layr-Labs/incredible-squaring-avs/types"
@@ -35,6 +41,12 @@ import (
 const AVS_NAME = "blockpost-avs"
 const SEM_VER = "0.0.1"
 
+type SignedMessage struct {
+	MessageId *big.Int
+	Message   string
+	Signature *bls.Signature
+}
+
 type Operator struct {
 	config    types.NodeConfig
 	logger    logging.Logger
@@ -56,9 +68,9 @@ type Operator struct {
 	operatorId       sdktypes.OperatorId
 	operatorAddr     common.Address
 	// receive new tasks in this chan (typically from listening to onchain event)
-	newTaskCreatedChan chan *cstaskmanager.ContractIncredibleSquaringTaskManagerNewTaskCreated
+	newTaskCreatedChan chan *blockPostServiceManager.BindingsMessageSubmitted
 	// needed when opting in to avs (allow this service manager contract to slash operator)
-	credibleSquaringServiceManagerAddr common.Address
+	blockPostServiceManagerAddr common.Address
 }
 
 func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
@@ -196,22 +208,22 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 	reg.MustRegister(economicMetricsCollector)
 
 	operator := &Operator{
-		config:                             c,
-		logger:                             logger,
-		metricsReg:                         reg,
-		metrics:                            avsAndEigenMetrics,
-		nodeApi:                            nodeApi,
-		ethClient:                          ethRpcClient,
-		avsWriter:                          avsWriter,
-		avsReader:                          avsReader,
-		avsSubscriber:                      avsSubscriber,
-		eigenlayerReader:                   sdkClients.ElChainReader,
-		eigenlayerWriter:                   sdkClients.ElChainWriter,
-		blsKeypair:                         blsKeyPair,
-		operatorAddr:                       common.HexToAddress(c.OperatorAddress),
-		newTaskCreatedChan:                 make(chan *cstaskmanager.ContractIncredibleSquaringTaskManagerNewTaskCreated),
-		credibleSquaringServiceManagerAddr: common.HexToAddress(c.AVSRegistryCoordinatorAddress),
-		operatorId:                         [32]byte{0}, // this is set below
+		config:                      c,
+		logger:                      logger,
+		metricsReg:                  reg,
+		metrics:                     avsAndEigenMetrics,
+		nodeApi:                     nodeApi,
+		ethClient:                   ethRpcClient,
+		avsWriter:                   avsWriter,
+		avsReader:                   avsReader,
+		avsSubscriber:               avsSubscriber,
+		eigenlayerReader:            sdkClients.ElChainReader,
+		eigenlayerWriter:            sdkClients.ElChainWriter,
+		blsKeypair:                  blsKeyPair,
+		operatorAddr:                common.HexToAddress(c.OperatorAddress),
+		newTaskCreatedChan:          make(chan *blockPostServiceManager.BindingsMessageSubmitted),
+		blockPostServiceManagerAddr: common.HexToAddress(c.AVSRegistryCoordinatorAddress),
+		operatorId:                  [32]byte{0}, // this is set below
 
 	}
 
@@ -233,7 +245,7 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 
 }
 
-func (o *Operator) ProcessNewMessageLog(newMessageLog *blockpost.ContractBlockPostMessageSubmitted) *blockpost.ContractBlockPostValidatedMessage {
+func (o *Operator) ProcessNewMessageLog(newMessageLog *blockPostServiceManager.BindingsMessageSubmitted) *blockPostServiceManager.BindingsMessageValidated {
 	o.logger.Debug("Received new message", "message", newMessageLog)
 	o.logger.Info("Received new message",
 		"messageId", newMessageLog.MessageId,
@@ -242,35 +254,34 @@ func (o *Operator) ProcessNewMessageLog(newMessageLog *blockpost.ContractBlockPo
 
 	validatedMessage := newMessageLog.Message // Will add validation logic
 
-	validatedMessageStruct := &blockpost.ContractBlockPostValidatedMessage{
+	validatedMessageStruct := &blockPostServiceManager.BindingsMessageValidated{
 		MessageId: newMessageLog.MessageId,
 		Message:   validatedMessage,
 	}
 	return validatedMessageStruct
 }
 
-func (o *Operator) SignValidatedMessage(validatedMessage *blockpost.ContractBlockPostValidatedMessage) (*blockpost.ContractBlockPostSignedMessage, error) {
+func (o *Operator) SignValidatedMessage(validatedMessage *blockPostServiceManager.BindingsMessageValidated) *SignedMessage {
 	messageHash := crypto.Keccak256Hash([]byte(validatedMessage.Message))
 
-	// Use ECDSA keypair for signing the message
-	signature, err := crypto.Sign(messageHash.Bytes(), o.ecdsaKeypair)
-	if err != nil {
-		return nil, err
-	}
+	signature := o.blsKeypair.SignMessage(messageHash)
 
-	signedMessage := &blockpost.ContractBlockPostSignedMessage{
+	signedMessage := &SignedMessage{
 		MessageId: validatedMessage.MessageId,
 		Message:   validatedMessage.Message,
 		Signature: signature,
 	}
 
 	o.logger.Debug("Signed validated message", "signedMessage", signedMessage)
-	return signedMessage, nil
+	return signedMessage
 }
 
-func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *blockpost.ContractBlockPostSignedMessage) error {
-	auth := bind.NewKeyedTransactor(o.ecdsaKeypair)
-	tx, err := o.blockpostContract.StoreValidatedMessage(auth, signedMessage.MessageId, signedMessage.Message, signedMessage.Signature)
+func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *SignedMessage) error {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	auth := bind.NewKeyedTransactor(privateKey)
+	bindings, err := blockPostServiceManager.NewBindings(o.blockPostServiceManagerAddr, o.ethClient)
+	tx, err := bindings.StoreValidatedMessage(auth, signedMessage.MessageId, signedMessage.Message, signedMessage.Signature.Serialize())
 	if err != nil {
 		o.logger.Error("Failed to submit signed message to blockchain", "err", err)
 		return err
@@ -281,12 +292,21 @@ func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *blockpost.Cont
 }
 
 func (o *Operator) StartMessageProcessing(ctx context.Context) error {
-	messageChan := make(chan *blockpost.MessageSubmitted)
+	messageChan := make(chan *blockPostServiceManager.BindingsMessageSubmitted)
 
-	sub, err := o.blockpostContract.WatchMessageSubmitted(&bind.WatchOpts{}, messageChan)
+	bindings, err := blockPostServiceManager.NewBindings(o.blockPostServiceManagerAddr, o.ethClient)
 	if err != nil {
-		return fmt.Errorf("failed to subscribe to message events: %v", err)
+		o.logger.Fatalf("Failed to instantiate bindings for event watching: %v", err)
 	}
+
+	watchOpts := &bind.WatchOpts{
+		Start:   nil,
+		Context: context.Background(),
+	}
+
+	messageIds := []*big.Int{}
+
+	sub, err := bindings.WatchMessageSubmitted(watchOpts, messageChan, messageIds)
 
 	for {
 		select {
@@ -297,7 +317,7 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 			validatedMessage := o.ProcessNewMessageLog(newMessageLog)
 
 			// Sign the validated message
-			signedMessage, err := o.SignValidatedMessage(validatedMessage)
+			signedMessage := o.SignValidatedMessage(validatedMessage)
 			if err != nil {
 				o.logger.Fatal("Failed to sign validated message", "err", err)
 				continue
@@ -313,7 +333,7 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 		case err := <-sub.Err():
 			o.logger.Error("Subscription error", "err", err)
 			sub.Unsubscribe()
-			sub, err = o.blockpostContract.WatchMessageSubmitted(&bind.WatchOpts{}, messageChan)
+			sub, err = bindings.WatchMessageSubmitted(watchOpts, messageChan, messageIds)
 			if err != nil {
 				return fmt.Errorf("failed to resubscribe to message events: %v", err)
 			}
