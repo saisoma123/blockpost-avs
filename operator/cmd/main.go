@@ -8,8 +8,9 @@ import (
 
 	"github.com/urfave/cli"
 
+	"operator"
+
 	"github.com/Layr-Labs/incredible-squaring-avs/core/config"
-	"github.com/Layr-Labs/incredible-squaring-avs/operator"
 	"github.com/Layr-Labs/incredible-squaring-avs/types"
 
 	sdkutils "github.com/Layr-Labs/eigensdk-go/utils"
@@ -52,7 +53,7 @@ func operatorMain(ctx *cli.Context) error {
 	log.Println("initialized operator")
 
 	log.Println("starting operator")
-	err = operator.Start(context.Background())
+	err = operator.StartMessageProcessing(context.Background())
 	if err != nil {
 		return err
 	}

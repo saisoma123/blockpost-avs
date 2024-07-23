@@ -2,13 +2,11 @@ package operator
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"math/big"
 	"os"
-
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
+	"time"
 
 	blockPostServiceManager "operator/bindings"
 
@@ -17,11 +15,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/Layr-Labs/incredible-squaring-avs/core/chainio"
 	"github.com/Layr-Labs/incredible-squaring-avs/metrics"
 	"github.com/Layr-Labs/incredible-squaring-avs/types"
 
 	"github.com/Layr-Labs/eigensdk-go/chainio/clients"
+	"github.com/Layr-Labs/eigensdk-go/chainio/clients/avsregistry"
 	sdkelcontracts "github.com/Layr-Labs/eigensdk-go/chainio/clients/elcontracts"
 	"github.com/Layr-Labs/eigensdk-go/chainio/clients/eth"
 	"github.com/Layr-Labs/eigensdk-go/chainio/clients/wallet"
@@ -44,7 +42,7 @@ const SEM_VER = "0.0.1"
 type SignedMessage struct {
 	MessageId *big.Int
 	Message   string
-	Signature *bls.Signature
+	Signature []byte
 }
 
 type Operator struct {
@@ -59,14 +57,17 @@ type Operator struct {
 	metricsReg       *prometheus.Registry
 	metrics          metrics.Metrics
 	nodeApi          *nodeapi.NodeApi
-	avsWriter        *chainio.AvsWriter
-	avsReader        chainio.AvsReaderer
-	avsSubscriber    chainio.AvsSubscriberer
+	avsWriter        *avsregistry.AvsRegistryChainWriter
+	avsReader        *avsregistry.AvsRegistryChainReader
+	avsSubscriber    *avsregistry.AvsRegistryChainSubscriber
 	eigenlayerReader sdkelcontracts.ELReader
 	eigenlayerWriter sdkelcontracts.ELWriter
 	blsKeypair       *bls.KeyPair
+	ecdsaKey         *ecdsa.PrivateKey
 	operatorId       sdktypes.OperatorId
 	operatorAddr     common.Address
+	skWallet         wallet.Wallet
+	txMgr            txmgr.TxManager
 	// receive new tasks in this chan (typically from listening to onchain event)
 	newTaskCreatedChan chan *blockPostServiceManager.BindingsMessageSubmitted
 	// needed when opting in to avs (allow this service manager contract to slash operator)
@@ -172,16 +173,16 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 	}
 	txMgr := txmgr.NewSimpleTxManager(skWallet, ethRpcClient, logger, common.HexToAddress(c.OperatorAddress))
 
-	avsWriter, err := chainio.BuildAvsWriter(
-		txMgr, common.HexToAddress(c.AVSRegistryCoordinatorAddress),
-		common.HexToAddress(c.OperatorStateRetrieverAddress), ethRpcClient, logger,
-	)
+	avsWriter, err := avsregistry.BuildAvsRegistryChainWriter(
+		common.HexToAddress(c.AVSRegistryCoordinatorAddress),
+		common.HexToAddress(c.OperatorStateRetrieverAddress), logger, ethRpcClient,
+		txMgr)
 	if err != nil {
 		logger.Error("Cannot create AvsWriter", "err", err)
 		return nil, err
 	}
 
-	avsReader, err := chainio.BuildAvsReader(
+	avsReader, err := avsregistry.BuildAvsRegistryChainReader(
 		common.HexToAddress(c.AVSRegistryCoordinatorAddress),
 		common.HexToAddress(c.OperatorStateRetrieverAddress),
 		ethRpcClient, logger)
@@ -189,9 +190,7 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 		logger.Error("Cannot create AvsReader", "err", err)
 		return nil, err
 	}
-	avsSubscriber, err := chainio.BuildAvsSubscriber(common.HexToAddress(c.AVSRegistryCoordinatorAddress),
-		common.HexToAddress(c.OperatorStateRetrieverAddress), ethWsClient, logger,
-	)
+	avsSubscriber, err := avsregistry.BuildAvsRegistryChainSubscriber(common.HexToAddress(c.AVSRegistryCoordinatorAddress), ethWsClient, logger)
 	if err != nil {
 		logger.Error("Cannot create AvsSubscriber", "err", err)
 		return nil, err
@@ -213,14 +212,17 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 		metricsReg:                  reg,
 		metrics:                     avsAndEigenMetrics,
 		nodeApi:                     nodeApi,
-		ethClient:                   ethRpcClient,
+		ethClient:                   ethWsClient,
 		avsWriter:                   avsWriter,
 		avsReader:                   avsReader,
 		avsSubscriber:               avsSubscriber,
 		eigenlayerReader:            sdkClients.ElChainReader,
 		eigenlayerWriter:            sdkClients.ElChainWriter,
 		blsKeypair:                  blsKeyPair,
+		ecdsaKey:                    operatorEcdsaPrivateKey,
 		operatorAddr:                common.HexToAddress(c.OperatorAddress),
+		skWallet:                    skWallet,
+		txMgr:                       txMgr,
 		newTaskCreatedChan:          make(chan *blockPostServiceManager.BindingsMessageSubmitted),
 		blockPostServiceManagerAddr: common.HexToAddress(c.AVSRegistryCoordinatorAddress),
 		operatorId:                  [32]byte{0}, // this is set below
@@ -260,11 +262,26 @@ func (o *Operator) ProcessNewMessageLog(newMessageLog *blockPostServiceManager.B
 	}
 	return validatedMessageStruct
 }
-
+func toEthSignedMessageHash(messageHash []byte) []byte {
+	prefix := "\x19Ethereum Signed Message:\n32"
+	prefixedHash := append([]byte(prefix), messageHash...)
+	ethSignedMessageHash := crypto.Keccak256Hash(prefixedHash)
+	return ethSignedMessageHash.Bytes()
+}
 func (o *Operator) SignValidatedMessage(validatedMessage *blockPostServiceManager.BindingsMessageValidated) *SignedMessage {
 	messageHash := crypto.Keccak256Hash([]byte(validatedMessage.Message))
+	ethHash := toEthSignedMessageHash(messageHash.Bytes())
 
-	signature := o.blsKeypair.SignMessage(messageHash)
+	// Sign the hash with the ECDSA private key
+	signature, err := crypto.Sign(ethHash, o.ecdsaKey)
+	if err != nil {
+		o.logger.Fatal("Failed to sign validated message", "err", err)
+		return nil
+	}
+
+	if signature[64] < 27 {
+		signature[64] += 27
+	}
 
 	signedMessage := &SignedMessage{
 		MessageId: validatedMessage.MessageId,
@@ -276,14 +293,11 @@ func (o *Operator) SignValidatedMessage(validatedMessage *blockPostServiceManage
 	return signedMessage
 }
 
-func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *SignedMessage) error {
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-
-	auth := bind.NewKeyedTransactor(privateKey)
-	bindings, err := blockPostServiceManager.NewBindings(o.blockPostServiceManagerAddr, o.ethClient)
-	tx, err := bindings.StoreValidatedMessage(auth, signedMessage.MessageId, signedMessage.Message, signedMessage.Signature.Serialize())
+func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *SignedMessage, bindings *blockPostServiceManager.Bindings) error {
+	auth, err := bind.NewKeyedTransactorWithChainID(o.ecdsaKey, big.NewInt(17000))
+	tx, err := bindings.StoreValidatedMessage(auth, signedMessage.MessageId, signedMessage.Message, signedMessage.Signature)
 	if err != nil {
-		o.logger.Error("Failed to submit signed message to blockchain", "err", err)
+		o.logger.Error("Failed to create transaction for signed message", "err", err)
 		return err
 	}
 
@@ -294,37 +308,62 @@ func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *SignedMessage)
 func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 	messageChan := make(chan *blockPostServiceManager.BindingsMessageSubmitted)
 
-	bindings, err := blockPostServiceManager.NewBindings(o.blockPostServiceManagerAddr, o.ethClient)
+	bindings, err := blockPostServiceManager.NewBindings(common.HexToAddress("0x8DFaA75cD04F88ACe98bD5A33C7809d714a7F8cB"), o.ethClient)
 	if err != nil {
 		o.logger.Fatalf("Failed to instantiate bindings for event watching: %v", err)
 	}
-
-	watchOpts := &bind.WatchOpts{
-		Start:   nil,
-		Context: context.Background(),
-	}
+	fmt.Println(o.operatorAddr)
 
 	messageIds := []*big.Int{}
 
+	// Get the current block number
+	currentBlock, err := o.ethClient.BlockNumber(ctx)
+	if err != nil {
+		o.logger.Fatal("Failed to get current block number", "err", err)
+		return err
+	}
+
+	var fromBlock uint64 = currentBlock - 10000
+	blockRange := uint64(5000)
+
+	watchOpts := &bind.WatchOpts{
+		Start:   &fromBlock,
+		Context: ctx,
+	}
 	sub, err := bindings.WatchMessageSubmitted(watchOpts, messageChan, messageIds)
+	if err != nil {
+		o.logger.Fatal("Failed to subscribe to message events", "err", err)
+		return fmt.Errorf("failed to subscribe to message events: %v", err)
+	}
+	defer sub.Unsubscribe()
 
 	for {
 		select {
 		case <-ctx.Done():
+			o.logger.Info("Context done, exiting")
 			return nil
 		case newMessageLog := <-messageChan:
+			if newMessageLog == nil {
+				o.logger.Fatal("Received nil message log")
+				continue
+			}
+			o.logger.Info("Received new message log")
+
 			// Process the new message log
 			validatedMessage := o.ProcessNewMessageLog(newMessageLog)
-
-			// Sign the validated message
-			signedMessage := o.SignValidatedMessage(validatedMessage)
-			if err != nil {
-				o.logger.Fatal("Failed to sign validated message", "err", err)
+			if validatedMessage == nil {
+				o.logger.Fatal("Validated message is nil")
 				continue
 			}
 
-			// Submit the signed message to the blockchain
-			err = o.SubmitSignedMessageToBlockchain(signedMessage)
+			// Sign the validated message
+			signedMessage := o.SignValidatedMessage(validatedMessage)
+			if signedMessage == nil {
+				o.logger.Fatal("Failed to sign validated message")
+				continue
+			}
+
+			err = o.SubmitSignedMessageToBlockchain(signedMessage, bindings)
 			if err != nil {
 				o.logger.Fatal("Failed to submit signed message to blockchain", "err", err)
 				continue
@@ -333,10 +372,23 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 		case err := <-sub.Err():
 			o.logger.Error("Subscription error", "err", err)
 			sub.Unsubscribe()
+
+			watchOpts.Start = &fromBlock
 			sub, err = bindings.WatchMessageSubmitted(watchOpts, messageChan, messageIds)
 			if err != nil {
 				return fmt.Errorf("failed to resubscribe to message events: %v", err)
 			}
+			continue
 		}
+
+		fromBlock += blockRange
+		if fromBlock > currentBlock {
+			currentBlock, err = o.ethClient.BlockNumber(ctx)
+			if err != nil {
+				o.logger.Fatal("Failed to get current block number", "err", err)
+				return err
+			}
+		}
+		time.Sleep(2 * time.Second)
 	}
 }
