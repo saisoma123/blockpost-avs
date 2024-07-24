@@ -308,7 +308,7 @@ func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *SignedMessage,
 func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 	messageChan := make(chan *blockPostServiceManager.BindingsMessageSubmitted)
 
-	bindings, err := blockPostServiceManager.NewBindings(common.HexToAddress("0x8DFaA75cD04F88ACe98bD5A33C7809d714a7F8cB"), o.ethClient)
+	bindings, err := blockPostServiceManager.NewBindings(common.HexToAddress("0xc5eFF99FB98b1eBEEf2533b30e60ba72f1FA28B3"), o.ethClient)
 	if err != nil {
 		o.logger.Fatalf("Failed to instantiate bindings for event watching: %v", err)
 	}

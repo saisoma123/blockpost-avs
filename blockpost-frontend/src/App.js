@@ -1,4 +1,8 @@
-const contractAddress = "0x8DFaA75cD04F88ACe98bD5A33C7809d714a7F8cB";
+import React, { useState, useEffect, useRef } from 'react';
+import { ethers } from 'ethers';
+import './App.css';
+
+const contractAddress = "0xc5eFF99FB98b1eBEEf2533b30e60ba72f1FA28B3";
 const abi = [
   {
     "type": "constructor",
@@ -517,53 +521,110 @@ const abi = [
   }
 ];
 
-async function submitMessage() {
-  const message = document.getElementById("newMessage").value;
-  if (!message) {
-    alert("Please enter a message.");
-    return;
-  }
 
-  if (typeof window.ethereum !== 'undefined') {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      await provider.send("eth_requestAccounts", []);
-      const signer = provider.getSigner();
-      const contract = new ethers.Contract(contractAddress, contractABI, signer);
 
-      const tx = await contract.submitMessage(message);
-      await tx.wait();
+function App() {
+  const [newMessage, setNewMessage] = useState('');
+  const [messageID, setMessageId] = useState('');
+  const [submitResult, setSubmitResult] = useState('');
+  const [retrieveResult, setRetrieveResult] = useState('');
+  const messageIdRef = useRef('');
 
-      document.getElementById("submitResult").innerText = `Message submitted successfully. Transaction Hash: ${tx.hash}`;
-    } catch (err) {
-      console.error(err);
-      document.getElementById("submitResult").innerText = `Error: ${err.message}`;
+  useEffect(() => {
+    const provider = new ethers.WebSocketProvider('wss://ethereum-holesky-rpc.publicnode.com');
+    const contract = new ethers.Contract(contractAddress, abi, provider);
+
+    contract.on("MessageSubmitted", (messageId, message) => {
+      let submitEvent = {
+        messageId: messageId.toString(),
+        message: message
+      };
+
+      setMessageId(messageId.toString()); // Update the state with the new messageId
+      messageIdRef.current = messageId.toString(); // Update the ref with the new messageId
+    });
+
+    // Clean up the event listener when the component unmounts
+    return () => {
+      contract.removeAllListeners("MessageSubmitted");
+    };
+  }, []);
+
+  const submitMessage = async () => {
+    if (!newMessage) {
+      alert("Please enter a message.");
+      return;
     }
-  } else {
-    alert("Please install MetaMask.");
-  }
+
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        const signer = await provider.getSigner();
+        const contract = new ethers.Contract(contractAddress, abi, signer);
+
+        const tx = await contract.submitMessage(newMessage);
+        await tx.wait();
+
+        setSubmitResult(`Message submitted successfully. Message ID: ${messageIdRef.current}`);
+      } catch (err) {
+        console.error(err);
+        setSubmitResult(`Error: ${err.message}`);
+      }
+    } else {
+      alert("Please install MetaMask.");
+    }
+  };
+
+  const retrieveMessage = async () => {
+    if (!messageID) {
+      alert("Please enter a message ID.");
+      return;
+    }
+
+    if (typeof window.ethereum !== 'undefined') {
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const contract = new ethers.Contract(contractAddress, abi, provider);
+
+        const message = await contract.retrieveMessage(messageID);
+        setRetrieveResult(`Message: ${message}`);
+      } catch (err) {
+        console.error(err);
+        setRetrieveResult(`Error: ${err.message}`);
+      }
+    } else {
+      alert("Please install MetaMask.");
+    }
+  };
+
+  return (
+    <div className="container">
+      <h2>BlockPost Interface</h2>
+      <div>
+        <h3>Submit New Message</h3>
+        <input
+          type="text"
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="Enter your message"
+        />
+        <button onClick={submitMessage}>Submit Message</button>
+        <div className="result">{submitResult}</div>
+      </div>
+      <div>
+        <h3>Retrieve Message by ID</h3>
+        <input
+          type="number"
+          value={messageID}
+          onChange={(e) => setMessageId(e.target.value)}
+          placeholder="Enter message ID"
+        />
+        <button onClick={retrieveMessage}>Retrieve Message</button>
+        <div className="result">{retrieveResult}</div>
+      </div>
+    </div>
+  );
 }
 
-async function retrieveMessage() {
-  const messageId = document.getElementById("messageId").value;
-  if (!messageId) {
-    alert("Please enter a message ID.");
-    return;
-  }
-
-  if (typeof window.ethereum !== 'undefined') {
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum);
-      const contract = new ethers.Contract(contractAddress, contractABI, provider);
-
-      const message = await contract.retrieveMessage(messageId);
-
-      document.getElementById("retrieveResult").innerText = `Message: ${message}`;
-    } catch (err) {
-      console.error(err);
-      document.getElementById("retrieveResult").innerText = `Error: ${err.message}`;
-    }
-  } else {
-    alert("Please install MetaMask.");
-  }
-}
+export default App;
