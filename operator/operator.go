@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
@@ -43,6 +44,12 @@ type SignedMessage struct {
 	MessageId *big.Int
 	Message   string
 	Signature []byte
+}
+
+type ValidatedMessage struct {
+	MessageId   *big.Int
+	Message     string
+	messageHash []byte
 }
 
 type Operator struct {
@@ -247,18 +254,29 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 
 }
 
-func (o *Operator) ProcessNewMessageLog(newMessageLog *blockPostServiceManager.BindingsMessageSubmitted) *blockPostServiceManager.BindingsMessageValidated {
+func ComputeMessageHash(message string) []byte {
+	hash := crypto.Keccak256Hash([]byte(message))
+	return hash.Bytes()
+}
+
+func VerifyMessageIntegrity(message string, expectedHash []byte) bool {
+	actualHash := ComputeMessageHash(message)
+	return bytes.Equal(actualHash, expectedHash)
+}
+
+func (o *Operator) ProcessNewMessageLog(newMessageLog *blockPostServiceManager.BindingsMessageSubmitted) ValidatedMessage {
 	o.logger.Debug("Received new message", "message", newMessageLog)
 	o.logger.Info("Received new message",
 		"messageId", newMessageLog.MessageId,
 		"message", newMessageLog.Message,
 	)
 
-	validatedMessage := newMessageLog.Message // Will add validation logic
+	messageHash := ComputeMessageHash(newMessageLog.Message)
 
-	validatedMessageStruct := &blockPostServiceManager.BindingsMessageValidated{
-		MessageId: newMessageLog.MessageId,
-		Message:   validatedMessage,
+	validatedMessageStruct := ValidatedMessage{
+		MessageId:   newMessageLog.MessageId,
+		Message:     newMessageLog.Message,
+		messageHash: messageHash,
 	}
 	return validatedMessageStruct
 }
@@ -268,9 +286,15 @@ func toEthSignedMessageHash(messageHash []byte) []byte {
 	ethSignedMessageHash := crypto.Keccak256Hash(prefixedHash)
 	return ethSignedMessageHash.Bytes()
 }
-func (o *Operator) SignValidatedMessage(validatedMessage *blockPostServiceManager.BindingsMessageValidated) *SignedMessage {
-	messageHash := crypto.Keccak256Hash([]byte(validatedMessage.Message))
-	ethHash := toEthSignedMessageHash(messageHash.Bytes())
+func (o *Operator) SignValidatedMessage(validatedMessage ValidatedMessage) *SignedMessage {
+
+	isValid := VerifyMessageIntegrity(validatedMessage.Message, validatedMessage.messageHash)
+	if !isValid {
+		o.logger.Fatal("Message integrity verification failed", "messageId", validatedMessage.MessageId)
+		return nil
+	}
+
+	ethHash := toEthSignedMessageHash(validatedMessage.messageHash)
 
 	// Sign the hash with the ECDSA private key
 	signature, err := crypto.Sign(ethHash, o.ecdsaKey)
@@ -351,7 +375,7 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 
 			// Process the new message log
 			validatedMessage := o.ProcessNewMessageLog(newMessageLog)
-			if validatedMessage == nil {
+			if &validatedMessage == nil {
 				o.logger.Fatal("Validated message is nil")
 				continue
 			}
