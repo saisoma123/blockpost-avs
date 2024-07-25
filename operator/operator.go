@@ -34,6 +34,7 @@ import (
 	rpccalls "github.com/Layr-Labs/eigensdk-go/metrics/collectors/rpc_calls"
 	"github.com/Layr-Labs/eigensdk-go/nodeapi"
 	"github.com/Layr-Labs/eigensdk-go/signerv2"
+	eigenSdkTypes "github.com/Layr-Labs/eigensdk-go/types"
 	sdktypes "github.com/Layr-Labs/eigensdk-go/types"
 )
 
@@ -338,6 +339,8 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 	}
 	fmt.Println(o.operatorAddr)
 
+	//o.RegisterOperatorWithAvs(o.ecdsaKey)
+
 	messageIds := []*big.Int{}
 
 	// Get the current block number
@@ -415,4 +418,26 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+func (o *Operator) RegisterOperatorWithAvs(
+	operatorEcdsaKeyPair *ecdsa.PrivateKey,
+) error {
+	// Define parameters for registration
+	quorumNumbers := eigenSdkTypes.QuorumNums{eigenSdkTypes.QuorumNum(1)}
+	socket := "https://ethereum-holesky-rpc.publicnode.com"
+
+	// Register the operator
+	_, err := o.avsWriter.RegisterOperator(
+		context.Background(),
+		operatorEcdsaKeyPair,
+		o.blsKeypair, quorumNumbers, socket,
+	)
+	if err != nil {
+		o.logger.Errorf("Unable to register operator with AVS registry coordinator %v", err)
+		return err
+	}
+	o.logger.Infof("Registered operator with AVS registry coordinator.")
+
+	return nil
 }
