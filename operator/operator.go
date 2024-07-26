@@ -34,7 +34,6 @@ import (
 	rpccalls "github.com/Layr-Labs/eigensdk-go/metrics/collectors/rpc_calls"
 	"github.com/Layr-Labs/eigensdk-go/nodeapi"
 	"github.com/Layr-Labs/eigensdk-go/signerv2"
-	eigenSdkTypes "github.com/Layr-Labs/eigensdk-go/types"
 	sdktypes "github.com/Layr-Labs/eigensdk-go/types"
 )
 
@@ -255,16 +254,27 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 
 }
 
+// This computes the message hash, used for later validation
 func ComputeMessageHash(message string) []byte {
 	hash := crypto.Keccak256Hash([]byte(message))
 	return hash.Bytes()
 }
 
+// Checks to see if the given hash is correct
 func VerifyMessageIntegrity(message string, expectedHash []byte) bool {
 	actualHash := ComputeMessageHash(message)
 	return bytes.Equal(actualHash, expectedHash)
 }
 
+// Appends ethereum signature to hash for signature
+func toEthSignedMessageHash(messageHash []byte) []byte {
+	prefix := "\x19Ethereum Signed Message:\n32"
+	prefixedHash := append([]byte(prefix), messageHash...)
+	ethSignedMessageHash := crypto.Keccak256Hash(prefixedHash)
+	return ethSignedMessageHash.Bytes()
+}
+
+// Processes the message from the event emission and computes the hash
 func (o *Operator) ProcessNewMessageLog(newMessageLog *blockPostServiceManager.BindingsMessageSubmitted) ValidatedMessage {
 	o.logger.Debug("Received new message", "message", newMessageLog)
 	o.logger.Info("Received new message",
@@ -281,20 +291,18 @@ func (o *Operator) ProcessNewMessageLog(newMessageLog *blockPostServiceManager.B
 	}
 	return validatedMessageStruct
 }
-func toEthSignedMessageHash(messageHash []byte) []byte {
-	prefix := "\x19Ethereum Signed Message:\n32"
-	prefixedHash := append([]byte(prefix), messageHash...)
-	ethSignedMessageHash := crypto.Keccak256Hash(prefixedHash)
-	return ethSignedMessageHash.Bytes()
-}
+
+// Creates the signature for on chain verification of the operator sent message to the ServiceManager
 func (o *Operator) SignValidatedMessage(validatedMessage ValidatedMessage) *SignedMessage {
 
+	// Checks to see if the message was tampered with in transit
 	isValid := VerifyMessageIntegrity(validatedMessage.Message, validatedMessage.messageHash)
 	if !isValid {
 		o.logger.Fatal("Message integrity verification failed", "messageId", validatedMessage.MessageId)
 		return nil
 	}
 
+	// Appends eth signature to hash
 	ethHash := toEthSignedMessageHash(validatedMessage.messageHash)
 
 	// Sign the hash with the ECDSA private key
@@ -318,6 +326,7 @@ func (o *Operator) SignValidatedMessage(validatedMessage ValidatedMessage) *Sign
 	return signedMessage
 }
 
+// Sends the validated and signed message to the ServiceManager via the operator contract
 func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *SignedMessage, bindings *blockPostServiceManager.Bindings) error {
 	auth, err := bind.NewKeyedTransactorWithChainID(o.ecdsaKey, big.NewInt(17000))
 	tx, err := bindings.StoreValidatedMessage(auth, signedMessage.MessageId, signedMessage.Message, signedMessage.Signature)
@@ -330,14 +339,16 @@ func (o *Operator) SubmitSignedMessageToBlockchain(signedMessage *SignedMessage,
 	return nil
 }
 
+// This starts a continously running loop in which the operator will validate
+// and sign a message any time a SubmitMessage event is emitted from the ServiceManager
 func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 	messageChan := make(chan *blockPostServiceManager.BindingsMessageSubmitted)
 
+	// Creates bindings to deployed service manager for subscribing to event listening
 	bindings, err := blockPostServiceManager.NewBindings(common.HexToAddress("0xc5eFF99FB98b1eBEEf2533b30e60ba72f1FA28B3"), o.ethClient)
 	if err != nil {
 		o.logger.Fatalf("Failed to instantiate bindings for event watching: %v", err)
 	}
-	fmt.Println(o.operatorAddr)
 
 	//o.RegisterOperatorWithAvs(o.ecdsaKey)
 
@@ -357,6 +368,8 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 		Start:   &fromBlock,
 		Context: ctx,
 	}
+
+	// Subscribed to event listening for submitted messages on-chain
 	sub, err := bindings.WatchMessageSubmitted(watchOpts, messageChan, messageIds)
 	if err != nil {
 		o.logger.Fatal("Failed to subscribe to message events", "err", err)
@@ -390,6 +403,7 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 				continue
 			}
 
+			/// Submits the message to the ServiceManager contract
 			err = o.SubmitSignedMessageToBlockchain(signedMessage, bindings)
 			if err != nil {
 				o.logger.Fatal("Failed to submit signed message to blockchain", "err", err)
@@ -418,26 +432,4 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 		}
 		time.Sleep(2 * time.Second)
 	}
-}
-
-func (o *Operator) RegisterOperatorWithAvs(
-	operatorEcdsaKeyPair *ecdsa.PrivateKey,
-) error {
-	// Define parameters for registration
-	quorumNumbers := eigenSdkTypes.QuorumNums{eigenSdkTypes.QuorumNum(1)}
-	socket := "https://ethereum-holesky-rpc.publicnode.com"
-
-	// Register the operator
-	_, err := o.avsWriter.RegisterOperator(
-		context.Background(),
-		operatorEcdsaKeyPair,
-		o.blsKeypair, quorumNumbers, socket,
-	)
-	if err != nil {
-		o.logger.Errorf("Unable to register operator with AVS registry coordinator %v", err)
-		return err
-	}
-	o.logger.Infof("Registered operator with AVS registry coordinator.")
-
-	return nil
 }
