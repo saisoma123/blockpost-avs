@@ -469,6 +469,7 @@ const contractABI = `[
   }
 ]`
 
+// Tests if the hashing function is working properly
 func TestVerifyMessageIntegrity(t *testing.T) {
 	message := "Test Message"
 	expectedHash := crypto.Keccak256Hash([]byte(message)).Bytes()
@@ -481,6 +482,7 @@ func TestVerifyMessageIntegrity(t *testing.T) {
 	assert.False(t, isValid)
 }
 
+// Checks if message validation is functioning properly
 func TestSignValidatedMessage(t *testing.T) {
 
 	validatedMessage := ValidatedMessage{
@@ -523,6 +525,8 @@ func TestSignValidatedMessage(t *testing.T) {
 	assert.NotNil(t, signedMessage.Signature)
 }
 
+// Tests smart contract interaction, walks through the whole AVS process,
+// and makes sure that it is possible to retrieve message
 func TestSmartContractInteraction(t *testing.T) {
 	privateKeyHex, ok := os.LookupEnv("PRIVATE_KEY")
 	if !ok {

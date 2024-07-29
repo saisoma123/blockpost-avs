@@ -52,35 +52,30 @@ type ValidatedMessage struct {
 	messageHash []byte
 }
 
+// Operator type from Incredible Squaring AVS
 type Operator struct {
-	config    types.NodeConfig
-	logger    logging.Logger
-	ethClient eth.Client
-	// TODO(samlaf): remove both avsWriter and eigenlayerWrite from operator
-	// they are only used for registration, so we should make a special registration package
-	// this way, auditing this operator code makes it obvious that operators don't need to
-	// write to the chain during the course of their normal operations
-	// writing to the chain should be done via the cli only
-	metricsReg       *prometheus.Registry
-	metrics          metrics.Metrics
-	nodeApi          *nodeapi.NodeApi
-	avsWriter        *avsregistry.AvsRegistryChainWriter
-	avsReader        *avsregistry.AvsRegistryChainReader
-	avsSubscriber    *avsregistry.AvsRegistryChainSubscriber
-	eigenlayerReader sdkelcontracts.ELReader
-	eigenlayerWriter sdkelcontracts.ELWriter
-	blsKeypair       *bls.KeyPair
-	ecdsaKey         *ecdsa.PrivateKey
-	operatorId       sdktypes.OperatorId
-	operatorAddr     common.Address
-	skWallet         wallet.Wallet
-	txMgr            txmgr.TxManager
-	// receive new tasks in this chan (typically from listening to onchain event)
-	newTaskCreatedChan chan *blockPostServiceManager.BindingsMessageSubmitted
-	// needed when opting in to avs (allow this service manager contract to slash operator)
+	config                      types.NodeConfig
+	logger                      logging.Logger
+	ethClient                   eth.Client
+	metricsReg                  *prometheus.Registry
+	metrics                     metrics.Metrics
+	nodeApi                     *nodeapi.NodeApi
+	avsWriter                   *avsregistry.AvsRegistryChainWriter
+	avsReader                   *avsregistry.AvsRegistryChainReader
+	avsSubscriber               *avsregistry.AvsRegistryChainSubscriber
+	eigenlayerReader            sdkelcontracts.ELReader
+	eigenlayerWriter            sdkelcontracts.ELWriter
+	blsKeypair                  *bls.KeyPair
+	ecdsaKey                    *ecdsa.PrivateKey
+	operatorId                  sdktypes.OperatorId
+	operatorAddr                common.Address
+	skWallet                    wallet.Wallet
+	txMgr                       txmgr.TxManager
+	newTaskCreatedChan          chan *blockPostServiceManager.BindingsMessageSubmitted
 	blockPostServiceManagerAddr common.Address
 }
 
+// Operator config function from Incredible Squaring AVS
 func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 	var logLevel logging.LogLevel
 	if c.Production {
@@ -134,9 +129,6 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 		logger.Errorf("Cannot parse bls private key", "err", err)
 		return nil, err
 	}
-	// TODO(samlaf): should we add the chainId to the config instead?
-	// this way we can prevent creating a signer that signs on mainnet by mistake
-	// if the config says chainId=5, then we can only create a goerli signer
 	chainId, err := ethRpcClient.ChainID(context.Background())
 	if err != nil {
 		logger.Error("Cannot get chainId", "err", err)
@@ -203,8 +195,6 @@ func NewOperatorFromConfig(c types.NodeConfig) (*Operator, error) {
 		return nil, err
 	}
 
-	// We must register the economic metrics separately because they are exported metrics (from jsonrpc or subgraph calls)
-	// and not instrumented metrics: see https://prometheus.io/docs/instrumenting/writing_clientlibs/#overall-structure
 	quorumNames := map[sdktypes.QuorumNum]string{
 		0: "quorum0",
 	}
@@ -361,6 +351,8 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 		return err
 	}
 
+	// The block range and continous changing of it is needed for event watching
+	// to function properly, as allowing for too much blocks can crash the subscriber
 	var fromBlock uint64 = currentBlock - 10000
 	blockRange := uint64(5000)
 

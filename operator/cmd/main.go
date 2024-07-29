@@ -32,6 +32,7 @@ func main() {
 
 func operatorMain(ctx *cli.Context) error {
 
+	// Reads in config.yaml to initialize Operator
 	log.Println("Initializing Operator")
 	configPath := ctx.GlobalString(config.ConfigFileFlag.Name)
 	nodeConfig := types.NodeConfig{}
@@ -53,6 +54,7 @@ func operatorMain(ctx *cli.Context) error {
 	log.Println("initialized operator")
 
 	log.Println("starting operator")
+	// Starts the subscriber and AVS process
 	err = operator.StartMessageProcessing(context.Background())
 	if err != nil {
 		return err
