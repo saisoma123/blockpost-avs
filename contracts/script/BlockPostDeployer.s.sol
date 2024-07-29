@@ -85,6 +85,8 @@ contract BlockPostDeployer is Script {
         address blockPostCommunityMultisig,
         address blockPostPauser
     ) internal {
+        // Initializes Proxy Admin, Service Manager proxy, and Empty Contract
+
         blockPostProxyAdmin = new ProxyAdmin(msg.sender);
 
         {
@@ -101,10 +103,12 @@ contract BlockPostDeployer is Script {
 
         blockPostServiceManagerProxy = new SimpleProxy(address(emptyContract));
 
+        // Initializes SimpleProxy and sets to empty contract initially
         stakeRegistryProxy = stakeRegistryProxy = new SimpleProxy(
             address(emptyContract)
         );
 
+        // Upgrades the proxy to the stake registry implementation
         {
             stakeRegistryImplementation = new ECDSAStakeRegistry(
                 delegationManager
@@ -115,6 +119,8 @@ contract BlockPostDeployer is Script {
             );
         }
 
+        // Initializes a quorum and initializes stake registry with service manager and
+        // quorum
         {
             StrategyParams memory strategyParams = StrategyParams({
                 strategy: baseStrategyImplementation,
@@ -134,12 +140,14 @@ contract BlockPostDeployer is Script {
             );
         }
 
+        // Makes the new service manager with new initialized proxies
         blockPostServiceManagerImplementation = new BlockPostServiceManager(
             avsDirectory,
-            IRegistryCoordinator(address(0)), // Adjust this if you have a registry coordinator
+            IRegistryCoordinator(address(0)),
             IStakeRegistry(address(stakeRegistryProxy))
         );
 
+        // Upgrades the SimpleProxy to point to service manager implementation
         SimpleProxy(payable(address(blockPostServiceManagerProxy))).upgradeTo(
             address(blockPostServiceManagerImplementation)
         );

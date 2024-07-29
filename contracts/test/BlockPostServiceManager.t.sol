@@ -17,6 +17,7 @@ contract BlockPostServiceManagerTest is Test {
     bytes32 messageHash;
     bytes signature;
 
+    // This sets up the fake owner, user, operator, and test ServiceManager contract
     function setUp() public {
         ownerr = address(0x1);
         user = address(0x2);
@@ -39,6 +40,7 @@ contract BlockPostServiceManagerTest is Test {
         vm.startPrank(ownerr);
     }
 
+    // Tests a simple submit message and checks if idsToAddress mapping is correct
     function testSubmitMessage() public {
         vm.stopPrank();
         vm.startPrank(user);
@@ -50,6 +52,7 @@ contract BlockPostServiceManagerTest is Test {
         assertEq(validated, user);
     }
 
+    // Tests the entire AVS process
     function testStoreValidatedMessage() public {
         vm.stopPrank();
         vm.startPrank(user);
@@ -74,6 +77,9 @@ contract BlockPostServiceManagerTest is Test {
         assertEq(validated, true);
     }
 
+    // Tests message retrieval and checks is user validation for whether or not
+    // they stored message in the first place
+
     function testRetrieveMessage() public {
         vm.stopPrank();
         vm.startPrank(user);
@@ -96,6 +102,7 @@ contract BlockPostServiceManagerTest is Test {
         assertEq(retrievedMessage, "Hello, World!");
     }
 
+    // Makes sure that empty message check works
     function testSubmitEmptyMessage() public {
         vm.stopPrank();
         vm.startPrank(user);
@@ -103,6 +110,7 @@ contract BlockPostServiceManagerTest is Test {
         blockPostServiceManager.submitMessage("");
     }
 
+    // Makes sure that message that was already validated and stored cannot be validated again
     function testStoreValidatedMessageTwice() public {
         vm.stopPrank();
         vm.prank(user);
@@ -126,6 +134,7 @@ contract BlockPostServiceManagerTest is Test {
         );
     }
 
+    // Checks if message id existence check works
     function testRetrieveMessageNotStored() public {
         vm.stopPrank();
         vm.startPrank(user);
@@ -137,6 +146,8 @@ contract BlockPostServiceManagerTest is Test {
         blockPostServiceManager.retrieveMessage(messageId);
     }
 
+    // Makes sure that other users of the system can't retrieve something they
+    // did not submit/store
     function testRetrieveMessageNotownerr() public {
         vm.stopPrank();
         vm.prank(user);
@@ -158,6 +169,7 @@ contract BlockPostServiceManagerTest is Test {
         blockPostServiceManager.retrieveMessage(messageId);
     }
 
+    // Makes sure invalid signatures are rejected
     function testRetrieveMessageWithInvalidSignature() public {
         vm.stopPrank();
         vm.startPrank(user);
@@ -174,6 +186,7 @@ contract BlockPostServiceManagerTest is Test {
         );
     }
 
+    // Stress tests system, makes sure it can process multiple messages and retrieve correctly
     function testRetrieveMultipleMessages() public {
         vm.stopPrank();
         vm.startPrank(user);
@@ -225,6 +238,7 @@ contract BlockPostServiceManagerTest is Test {
         vm.stopPrank();
     }
 
+    // Helper function for creating signatures with fake operator private key
     function signMessage(
         string memory _message
     ) internal view returns (bytes32, bytes memory) {

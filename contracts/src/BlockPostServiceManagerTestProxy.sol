@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "../src/BlockPostServiceManager.sol";
 
+// This is used to construct ServiceManager in the tester
 contract BlockPostServiceManagerTestProxy is BlockPostServiceManager {
     constructor(
         IAVSDirectory _avsDirectory,

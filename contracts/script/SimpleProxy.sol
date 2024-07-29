@@ -17,6 +17,7 @@ contract SimpleProxy {
         admin = msg.sender;
     }
 
+    // Upgrades to new implementation and only admin can call this
     function upgradeTo(address newImplementation) external onlyAdmin {
         implementation = newImplementation;
         emit Upgraded(newImplementation);
@@ -26,6 +27,7 @@ contract SimpleProxy {
         // custom code to handle received Ether
     }
 
+    // Assembly level instructions for forwarding calls to the implementation
     fallback() external payable {
         address impl = implementation;
         require(impl != address(0), "Implementation not set");
