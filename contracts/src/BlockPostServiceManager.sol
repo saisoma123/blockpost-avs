@@ -10,49 +10,40 @@ import "@openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol
 import "@eigenlayer/contracts/permissions/Pausable.sol";
 import {IRegistryCoordinator} from "eigenlayer-middleware/src/interfaces/IRegistryCoordinator.sol";
 
-pragma solidity ^0.8.13;
-
 contract BlockPostServiceManager is ServiceManagerBase, Pausable {
     uint256 private messageId;
-    IStakeRegistry private stakeRegistry;
 
-    mapping(uint256 => string) public messages;
-    mapping(uint256 => bool) public messageValidated;
-    mapping(uint256 => bytes) public messageSignatures;
+    mapping(uint256 => string) private messages;
+    mapping(uint256 => bool) private messageValidated;
+    mapping(uint256 => address) private idstoAddress;
 
-    event MessageStored(uint256 indexed messageId, string message);
     event MessageSubmitted(uint256 indexed messageId, string message);
-    event MessageValidated(uint256 indexed messageId, string message);
+    event MessageValidated(
+        uint256 indexed messageId,
+        string message,
+        address sender
+    );
 
     constructor(
         IAVSDirectory _avsDirectory,
         IRegistryCoordinator _registryCoordinator,
         IStakeRegistry _stakeRegistry
     ) ServiceManagerBase(_avsDirectory, _registryCoordinator, _stakeRegistry) {
-        stakeRegistry = _stakeRegistry;
-        messageId = 1;
+        messageId = 0;
     }
-
-    /** 
-    modifier onlyOperator() {
-        require(
-            IStakeRegistry(stakeRegistry).operatorRegistered(msg.sender),
-            "Caller is not a registered operator"
-        );
-        _;
-    }
-    */
 
     function submitMessage(
         string memory _message
     ) public whenNotPaused returns (uint256) {
         require(bytes(_message).length > 0, "Message cannot be empty");
 
-        uint256 newMessageId = messageId;
+        uint256 currMessageId = messageId;
         messageId++;
 
-        emit MessageSubmitted(newMessageId, _message);
-        return newMessageId;
+        idstoAddress[currMessageId] = msg.sender;
+
+        emit MessageSubmitted(currMessageId, _message);
+        return currMessageId;
     }
 
     function storeValidatedMessage(
@@ -60,7 +51,6 @@ contract BlockPostServiceManager is ServiceManagerBase, Pausable {
         string memory _message,
         bytes memory _signature
     ) public whenNotPaused {
-        require(bytes(_message).length > 0, "Message cannot be empty");
         require(!messageValidated[_messageId], "Message already validated");
 
         // Verify the signature
@@ -75,24 +65,11 @@ contract BlockPostServiceManager is ServiceManagerBase, Pausable {
 
         require(signer == msg.sender, "Message signer is not operator");
 
-        //require(operators[signer], "Invalid signature");
-
         messages[_messageId] = _message;
         messageValidated[_messageId] = true;
-        messageSignatures[_messageId] = _signature;
 
-        emit MessageValidated(_messageId, _message);
+        emit MessageValidated(_messageId, _message, idstoAddress[_messageId]);
     }
-
-    /** 
-    function storeMessage(string memory _message) public returns (uint256) {
-        uint256 id = messageId;
-        messages[id] = _message;
-        messageId++;
-        emit MessageStored(messageId, _message);
-        return id;
-    }
-    */
 
     function retrieveMessage(
         uint256 _messageId
@@ -102,6 +79,28 @@ contract BlockPostServiceManager is ServiceManagerBase, Pausable {
             "Message ID does not exist"
         );
         require(messageValidated[_messageId], "Message not validated");
+        require(
+            idstoAddress[_messageId] == msg.sender,
+            "This is not your message!"
+        );
         return messages[_messageId];
+    }
+
+    function _getMessage(
+        uint256 _messageId
+    ) internal view returns (string memory) {
+        return messages[_messageId];
+    }
+
+    function _isMessageValidated(
+        uint256 _messageId
+    ) internal view returns (bool) {
+        return messageValidated[_messageId];
+    }
+
+    function _getAddressForMessage(
+        uint256 _messageId
+    ) internal view returns (address) {
+        return idstoAddress[_messageId];
     }
 }

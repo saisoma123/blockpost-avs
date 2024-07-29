@@ -3,21 +3,22 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "../src/BlockPostServiceManager.sol";
+import "../src/BlockPostServiceManagerTestProxy.sol";
 import "@openzeppelin-upgrades/contracts/utils/cryptography/ECDSAUpgradeable.sol";
 import "eigenlayer-middleware/src/interfaces/IRegistryCoordinator.sol";
 
 contract BlockPostServiceManagerTest is Test {
-    BlockPostServiceManager public blockPostServiceManager;
-    address public owner;
-    address public user;
-    address public validator;
+    BlockPostServiceManagerTestProxy blockPostServiceManager;
+    address ownerr;
+    address user;
+    address validator;
     uint256 validatorKey;
-    uint256 public messageId;
-    bytes32 public messageHash;
-    bytes public signature;
+    uint256 messageId;
+    bytes32 messageHash;
+    bytes signature;
 
     function setUp() public {
-        owner = address(0x1);
+        ownerr = address(0x1);
         user = address(0x2);
 
         validatorKey = uint256(keccak256(abi.encodePacked("validator")));
@@ -29,13 +30,13 @@ contract BlockPostServiceManagerTest is Test {
         );
         IStakeRegistry stakeRegistry = IStakeRegistry(address(0x6));
 
-        blockPostServiceManager = new BlockPostServiceManager(
+        blockPostServiceManager = new BlockPostServiceManagerTestProxy(
             avsDirectory,
             registryCoordinator,
             stakeRegistry
         );
 
-        vm.startPrank(owner);
+        vm.startPrank(ownerr);
     }
 
     function testSubmitMessage() public {
@@ -43,7 +44,9 @@ contract BlockPostServiceManagerTest is Test {
         vm.startPrank(user);
         messageId = blockPostServiceManager.submitMessage("Hello, World!");
 
-        address validated = blockPostServiceManager.idstoAddress(messageId);
+        address validated = blockPostServiceManager.getAddressForMessage(
+            messageId
+        );
         assertEq(validated, user);
     }
 
@@ -65,8 +68,8 @@ contract BlockPostServiceManagerTest is Test {
         );
         vm.stopPrank();
 
-        string memory message = blockPostServiceManager.messages(messageId);
-        bool validated = blockPostServiceManager.messageValidated(messageId);
+        string memory message = blockPostServiceManager.getMessage(messageId);
+        bool validated = blockPostServiceManager.isMessageValidated(messageId);
         assertEq(message, "Hello, World!");
         assertEq(validated, true);
     }
@@ -134,7 +137,7 @@ contract BlockPostServiceManagerTest is Test {
         blockPostServiceManager.retrieveMessage(messageId);
     }
 
-    function testRetrieveMessageNotOwner() public {
+    function testRetrieveMessageNotownerr() public {
         vm.stopPrank();
         vm.prank(user);
         messageId = blockPostServiceManager.submitMessage("Hello, World!");
@@ -151,7 +154,7 @@ contract BlockPostServiceManagerTest is Test {
         vm.stopPrank();
 
         vm.expectRevert("This is not your message!");
-        vm.prank(owner);
+        vm.prank(ownerr);
         blockPostServiceManager.retrieveMessage(messageId);
     }
 
