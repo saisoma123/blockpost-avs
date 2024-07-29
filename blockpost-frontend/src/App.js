@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
 import './App.css';
 
-const contractAddress = "0xc5eFF99FB98b1eBEEf2533b30e60ba72f1FA28B3";
+const contractAddress = "0x52acEa39aBe44B5b5598279Ff507dF5721c2A616";
 const abi = [
   {
     "type": "constructor",
@@ -79,63 +79,6 @@ const abi = [
         "name": "",
         "type": "address[]",
         "internalType": "address[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "messageSignatures",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "messageValidated",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "messages",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
       }
     ],
     "stateMutability": "view"
@@ -388,25 +331,6 @@ const abi = [
   },
   {
     "type": "event",
-    "name": "MessageStored",
-    "inputs": [
-      {
-        "name": "messageId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "message",
-        "type": "string",
-        "indexed": false,
-        "internalType": "string"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "MessageSubmitted",
     "inputs": [
       {
@@ -439,6 +363,12 @@ const abi = [
         "type": "string",
         "indexed": false,
         "internalType": "string"
+      },
+      {
+        "name": "sender",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -525,29 +455,25 @@ const abi = [
 
 function App() {
   const [newMessage, setNewMessage] = useState('');
-  const [messageID, setMessageId] = useState('');
+  const [messageID, setMessageID] = useState('');
   const [submitResult, setSubmitResult] = useState('');
   const [retrieveResult, setRetrieveResult] = useState('');
-  const messageIdRef = useRef('');
+  const [showResult, setShowResult] = useState(false);
 
   useEffect(() => {
     const provider = new ethers.WebSocketProvider('wss://ethereum-holesky-rpc.publicnode.com');
     const contract = new ethers.Contract(contractAddress, abi, provider);
 
     contract.on("MessageSubmitted", (messageId, message) => {
-      let submitEvent = {
-        messageId: messageId.toString(),
-        message: message
-      };
-
-      setMessageId(messageId.toString()); // Update the state with the new messageId
-      messageIdRef.current = messageId.toString(); // Update the ref with the new messageId
+      console.log("MessageSubmitted event:", messageId.toString(), message);
+      setMessageID(messageId.toString()); // Update the state with the new messageId
+      setSubmitResult(`Message submitted successfully. Message ID: ${messageId.toString()}`);
     });
 
     // Clean up the event listener when the component unmounts
-    return () => {
-      contract.removeAllListeners("MessageSubmitted");
-    };
+    // return () => {
+    //   contract.removeAllListeners("MessageSubmitted");
+    // };
   }, []);
 
   const submitMessage = async () => {
@@ -566,7 +492,7 @@ function App() {
         const tx = await contract.submitMessage(newMessage);
         await tx.wait();
 
-        setSubmitResult(`Message submitted successfully. Message ID: ${messageIdRef.current}`);
+        //setSubmitResult(`Message submitted. Waiting for confirmation...`);
       } catch (err) {
         console.error(err);
         setSubmitResult(`Error: ${err.message}`);
@@ -585,7 +511,9 @@ function App() {
     if (typeof window.ethereum !== 'undefined') {
       try {
         const provider = new ethers.BrowserProvider(window.ethereum);
-        const contract = new ethers.Contract(contractAddress, abi, provider);
+        await provider.send("eth_requestAccounts", []);
+        const signer = await provider.getSigner();
+        const contract = new ethers.Contract(contractAddress, abi, signer);
 
         const message = await contract.retrieveMessage(messageID);
         setRetrieveResult(`Message: ${message}`);
@@ -617,10 +545,13 @@ function App() {
         <input
           type="number"
           value={messageID}
-          onChange={(e) => setMessageId(e.target.value)}
+          onChange={(e) => setMessageID(e.target.value)}
           placeholder="Enter message ID"
         />
         <button onClick={retrieveMessage}>Retrieve Message</button>
+        <div style={{ display: showResult ? 'block' : 'none' }}>
+          <div className="result">Current Message ID: {messageID}</div>
+        </div>
         <div className="result">{retrieveResult}</div>
       </div>
     </div>
