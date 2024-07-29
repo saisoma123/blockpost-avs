@@ -24,6 +24,10 @@ then it starts a React app that you can use to interact with the ServiceManager 
 11. `make deploy` command will deploy a new ServiceManager contract. You will have to replace the old address in 
 operator.go and App.js.
 
+Quick note: When compiling with Solidity 0.8.25, there may be an EigenLayer-middleware error,
+in which a function is not found, you can replace the call with a one liner very easily,
+this will get things going. You can also downgrade the Solidity version used if needed.
+
 This AVS design works as follows: the user (AVS consumer) sends a submitMessage
 request to the ServiceManager contract, and the request emits a MessageSubmitted
 event with the message and message id on chain. The operator is 
