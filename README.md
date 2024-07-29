@@ -20,7 +20,9 @@ React app (make sure to have npm installed).
 8. `make` command will start the app, it runs `go run main.go --config operator.anvil.yaml` to start the operator,
 then it starts a React app that you can use to interact with the ServiceManager contract.
 9. `make contract_tests` command will run all of the tests for the ServiceManager contract.
-10. `make operator_tests` command will run all of the tests for the operator.
+10. `make operator_tests` command will run all of the tests for the operator (make sure to set PRIVATE_KEY var, as one of the tests sends a test message to the chain)
+11. `make deploy` command will deploy a new ServiceManager contract. You will have to replace the old address in 
+operator.go and App.js.
 
 This AVS design works as follows: the user (AVS consumer) sends a submitMessage
 request to the ServiceManager contract, and the request emits a MessageSubmitted
