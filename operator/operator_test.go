@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -96,63 +97,6 @@ const contractABI = `[
         "name": "",
         "type": "address[]",
         "internalType": "address[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "messageSignatures",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "messageValidated",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "messages",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
       }
     ],
     "stateMutability": "view"
@@ -405,25 +349,6 @@ const contractABI = `[
   },
   {
     "type": "event",
-    "name": "MessageStored",
-    "inputs": [
-      {
-        "name": "messageId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "message",
-        "type": "string",
-        "indexed": false,
-        "internalType": "string"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "MessageSubmitted",
     "inputs": [
       {
@@ -456,6 +381,12 @@ const contractABI = `[
         "type": "string",
         "indexed": false,
         "internalType": "string"
+      },
+      {
+        "name": "sender",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -536,7 +467,7 @@ const contractABI = `[
     ],
     "anonymous": false
   }
-];`
+]`
 
 func TestVerifyMessageIntegrity(t *testing.T) {
 	message := "Test Message"
@@ -592,15 +523,18 @@ func TestSignValidatedMessage(t *testing.T) {
 	assert.NotNil(t, signedMessage.Signature)
 }
 
-const privateKeyHex = ""
-
 func TestSmartContractInteraction(t *testing.T) {
+	privateKeyHex, ok := os.LookupEnv("PRIVATE_KEY")
+	if !ok {
+		log.Fatalf("PRIVATE KET env var not set")
+	}
+
 	client, err := ethclient.Dial("https://ethereum-holesky-rpc.publicnode.com")
 	if err != nil {
 		log.Fatalf("Failed to connect to the Ethereum client: %v", err)
 	}
 
-	contractAddress := common.HexToAddress("0xc5eFF99FB98b1eBEEf2533b30e60ba72f1FA28B3")
+	contractAddress := common.HexToAddress("0x52acEa39aBe44B5b5598279Ff507dF5721c2A616")
 	parsedABI, err := abi.JSON(strings.NewReader(contractABI))
 	if err != nil {
 		log.Fatalf("Failed to parse ABI: %v", err)
