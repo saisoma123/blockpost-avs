@@ -345,7 +345,7 @@ func (o *Operator) StartMessageProcessing(ctx context.Context) error {
 	messageChan := make(chan *blockPostServiceManager.BindingsMessageSubmitted)
 
 	// Creates bindings to deployed service manager for subscribing to event listening
-	bindings, err := blockPostServiceManager.NewBindings(common.HexToAddress("0xc5eFF99FB98b1eBEEf2533b30e60ba72f1FA28B3"), o.ethClient)
+	bindings, err := blockPostServiceManager.NewBindings(common.HexToAddress("0x52acEa39aBe44B5b5598279Ff507dF5721c2A616"), o.ethClient)
 	if err != nil {
 		o.logger.Fatalf("Failed to instantiate bindings for event watching: %v", err)
 	}
