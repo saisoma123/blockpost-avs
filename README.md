@@ -51,4 +51,5 @@ a bit more gas. But to ensure complete security, as in only messages that belong
 to a particular user can only be seen by that user, this would be one of the most
 secure choices. Also, I would have added the onlyOperator modifier to the 
 storeValidatedMessage function. These design choices are definitely needed if this
-was to be deployed to mainnet.
+was to be deployed to mainnet. Also, retrieval can take some time to register, as the messages mapping
+can take some time to reflect the storeValidatedMessage modifications to it.
