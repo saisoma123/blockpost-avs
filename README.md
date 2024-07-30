@@ -27,6 +27,8 @@ operator.go and App.js.
 Quick note: When compiling with Solidity 0.8.25, there may be an EigenLayer-middleware error,
 in which a function is not found, you can replace the call with a one liner very easily,
 this will get things going. You can also downgrade the Solidity version used if needed.
+Also make sure that you have MetaMask and have your wallet connected to Holesky testnet.
+You may have to get some HolETH to interact with the AVS.
 
 This AVS design works as follows: the user (AVS consumer) sends a submitMessage
 request to the ServiceManager contract, and the request emits a MessageSubmitted
